@@ -1,7 +1,6 @@
 "use client";
 
-import { useState } from "react";
-import Link from "next/link";
+import { useState, useEffect } from "react";
 import {
   Card,
   CardContent,
@@ -10,412 +9,202 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { Badge } from "@/components/ui/badge";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import {
-  Plus,
+  FileText,
   StickyNote,
-  Lock,
-  Search,
-  Calendar,
-  Tag,
-  Edit,
-  Trash2,
-  MoreVertical,
+  Upload,
+  Plus,
+  Loader2,
+  ChevronRight,
 } from "lucide-react";
+import Link from "next/link";
+import { supabase } from "@/lib/supabase-client";
 
-interface Note {
-  id: string;
-  title: string;
-  content: string;
-  date: string;
-  tags: string[];
-  encrypted: boolean;
-}
+export default function Home() {
+  const [stats, setStats] = useState({
+    labReports: 0,
+    notes: 0,
+    recentReports: [] as any[],
+    recentNotes: [] as any[],
+  });
+  const [loading, setLoading] = useState(true);
 
-// Dummy data for starter template
-const initialDummyNotes: Note[] = [
-  {
-    id: "1",
-    title: "Annual Physical Notes",
-    content: "Had my annual physical today. Blood pressure is normal, cholesterol levels are good. Doctor recommended maintaining current exercise routine.",
-    date: "2024-01-20",
-    tags: ["appointment", "health"],
-    encrypted: true,
-  },
-  {
-    id: "2",
-    title: "Medication Schedule",
-    content: "Morning: Vitamin D (1000 IU), Multivitamin\nEvening: Omega-3 (1000mg)\nTake with meals for better absorption.",
-    date: "2024-01-10",
-    tags: ["medication", "schedule"],
-    encrypted: true,
-  },
-  {
-    id: "3",
-    title: "Doctor Appointment Reminder",
-    content: "Follow-up appointment scheduled for February 15th at 2:00 PM. Bring recent lab results and list of current medications.",
-    date: "2024-01-05",
-    tags: ["appointment", "reminder"],
-    encrypted: true,
-  },
-];
+  useEffect(() => {
+    fetchDashboardData();
+  }, []);
 
-export default function NotesPage() {
-  const [notes, setNotes] = useState<Note[]>(initialDummyNotes);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
-  const [editingNote, setEditingNote] = useState<Note | null>(null);
-  const [newNote, setNewNote] = useState({ title: "", content: "", tags: "" });
-  const [expandedNotes, setExpandedNotes] = useState<Set<string>>(new Set());
-
-  const filteredNotes = notes.filter(
-    (note) =>
-      note.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      note.content.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      note.tags.some((tag) =>
-        tag.toLowerCase().includes(searchQuery.toLowerCase())
-      )
-  );
-
-  const handleCreateNote = () => {
-    if (!newNote.title.trim()) {
-      alert("Please enter a note title.");
+  const fetchDashboardData = async () => {
+    if (!supabase) {
+      setLoading(false);
       return;
     }
 
-    const tagsArray = newNote.tags
-      .split(",")
-      .map((tag) => tag.trim())
-      .filter(Boolean);
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
 
-    const note: Note = {
-      id: Date.now().toString(),
-      title: newNote.title,
-      content: newNote.content,
-      date: new Date().toISOString().slice(0, 10),
-      tags: tagsArray,
-      encrypted: true,
-    };
-
-    setNotes((prev) => [note, ...prev]);
-    setNewNote({ title: "", content: "", tags: "" });
-    setIsDialogOpen(false);
-  };
-
-  const handleEditNote = (note: Note) => {
-    setEditingNote(note);
-    setNewNote({
-      title: note.title,
-      content: note.content,
-      tags: note.tags.join(", "),
-    });
-    setIsEditDialogOpen(true);
-  };
-
-  const handleUpdateNote = () => {
-    if (!editingNote || !newNote.title.trim()) return;
-
-    const tagsArray = newNote.tags
-      .split(",")
-      .map((tag) => tag.trim())
-      .filter(Boolean);
-
-    const updatedNote: Note = {
-      ...editingNote,
-      title: newNote.title,
-      content: newNote.content,
-      tags: tagsArray,
-    };
-
-    setNotes((prev) =>
-      prev.map((n) => (n.id === updatedNote.id ? updatedNote : n))
-    );
-    setEditingNote(null);
-    setNewNote({ title: "", content: "", tags: "" });
-    setIsEditDialogOpen(false);
-  };
-
-  const handleDeleteNote = (noteId: string) => {
-    if (!confirm("Are you sure you want to delete this note?")) return;
-    setNotes((prev) => prev.filter((n) => n.id !== noteId));
-  };
-
-  const toggleExpand = (noteId: string) => {
-    setExpandedNotes((prev) => {
-      const newSet = new Set(prev);
-      if (newSet.has(noteId)) {
-        newSet.delete(noteId);
-      } else {
-        newSet.add(noteId);
+      if (!user) {
+        setLoading(false);
+        return;
       }
-      return newSet;
-    });
+
+      // Fetch lab reports
+      const { data: labReports } = await supabase
+        .from("lab_reports")
+        .select("id, file_name, uploaded_at, ai_analysis")
+        .eq("user_id", user.id)
+        .order("uploaded_at", { ascending: false })
+        .limit(5);
+
+      // Fetch notes
+      const { data: notes } = await supabase
+        .from("notes")
+        .select("id, title, created_at")
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: false })
+        .limit(5);
+
+      setStats({
+        labReports: labReports?.length || 0,
+        notes: notes?.length || 0,
+        recentReports: labReports || [],
+        recentNotes: notes || [],
+      });
+    } catch (error) {
+      console.error("Error fetching dashboard data:", error);
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-3xl font-bold tracking-tight">Secure Notes</h2>
-          <p className="text-muted-foreground">
-            Keep encrypted notes about your health, appointments, and medical
-            information
-          </p>
+      {loading ? (
+        <div className="flex items-center justify-center py-12">
+          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
         </div>
-        <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-          <DialogTrigger asChild>
-            <Button>
-              <Plus className="mr-2 h-4 w-4" />
-              New Note
-            </Button>
-          </DialogTrigger>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Create New Note</DialogTitle>
-              <DialogDescription>
-                Add a secure note to your health journal. All notes are
-                encrypted.
-              </DialogDescription>
-            </DialogHeader>
-            <div className="space-y-4 py-4">
-              <Input
-                placeholder="Note title"
-                value={newNote.title}
-                onChange={(e) =>
-                  setNewNote({ ...newNote, title: e.target.value })
-                }
-              />
-              <Textarea
-                placeholder="Note content"
-                value={newNote.content}
-                onChange={(e) =>
-                  setNewNote({ ...newNote, content: e.target.value })
-                }
-                rows={6}
-              />
-              <Input
-                placeholder="Tags (comma-separated)"
-                value={newNote.tags}
-                onChange={(e) =>
-                  setNewNote({ ...newNote, tags: e.target.value })
-                }
-              />
-              <Button onClick={handleCreateNote} className="w-full">
-                Create Note
-              </Button>
-            </div>
-          </DialogContent>
-        </Dialog>
-
-        {/* Edit Note Dialog */}
-        <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Edit Note</DialogTitle>
-              <DialogDescription>
-                Update your note. All changes are saved securely.
-              </DialogDescription>
-            </DialogHeader>
-            <div className="space-y-4 py-4">
-              <Input
-                placeholder="Note title"
-                value={newNote.title}
-                onChange={(e) =>
-                  setNewNote({ ...newNote, title: e.target.value })
-                }
-              />
-              <Textarea
-                placeholder="Note content"
-                value={newNote.content}
-                onChange={(e) =>
-                  setNewNote({ ...newNote, content: e.target.value })
-                }
-                rows={6}
-              />
-              <Input
-                placeholder="Tags (comma-separated)"
-                value={newNote.tags}
-                onChange={(e) =>
-                  setNewNote({ ...newNote, tags: e.target.value })
-                }
-              />
-              <div className="flex gap-2">
-                <Button onClick={handleUpdateNote} className="flex-1">
-                  Save Changes
+      ) : (
+        <>
+          {/* Recent Lab Reports */}
+          <div>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-semibold">Recent Lab Reports</h2>
+              <Link href="/lab-reports">
+                <Button variant="ghost" size="sm" className="text-blue-600">
+                  <Upload className="h-4 w-4 mr-2" />
+                  Upload
                 </Button>
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    setIsEditDialogOpen(false);
-                    setEditingNote(null);
-                    setNewNote({ title: "", content: "", tags: "" });
-                  }}
-                >
-                  Cancel
-                </Button>
-              </div>
+              </Link>
             </div>
-          </DialogContent>
-        </Dialog>
-      </div>
-
-      <div className="flex gap-4">
-        <div className="flex-1">
-          <div className="relative mb-4">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="Search notes..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-10"
-            />
-          </div>
-
-          <ScrollArea className="h-[600px]">
-            <div className="space-y-4">
-              {filteredNotes.length === 0 ? (
-                <Card>
-                  <CardContent className="flex flex-col items-center justify-center py-12">
-                    <StickyNote className="h-12 w-12 text-muted-foreground mb-4 opacity-50" />
-                    <p className="text-muted-foreground">
-                      {searchQuery
-                        ? "No notes found matching your search"
-                        : "No notes yet. Create your first note!"}
-                    </p>
-                  </CardContent>
-                </Card>
-              ) : (
-                filteredNotes.map((note) => {
-                  const isExpanded = expandedNotes.has(note.id);
-
-                  return (
-                    <Card
-                      key={note.id}
-                      className="hover:bg-muted/50 transition-colors"
-                    >
-                      <CardHeader>
-                        <div className="flex items-start justify-between">
-                          <div className="flex-1">
-                            <div className="flex items-center gap-2 mb-2">
-                              <CardTitle className="text-lg">
-                                {note.title}
-                              </CardTitle>
-                              {note.encrypted && (
-                                <Lock className="h-4 w-4 text-muted-foreground" />
-                              )}
+            <Card className="bg-white border border-gray-200">
+              <CardContent className="p-0">
+                {stats.recentReports.length > 0 ? (
+                  <div className="divide-y divide-gray-100">
+                    {stats.recentReports.slice(0, 3).map((report) => (
+                      <Link
+                        key={report.id}
+                        href="/lab-reports"
+                        className="block p-4 hover:bg-gray-50 transition-colors"
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-3 flex-1">
+                            <div className="h-10 w-10 rounded-full bg-blue-100 flex items-center justify-center">
+                              <FileText className="h-5 w-5 text-blue-600" />
                             </div>
-                            <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                              <div className="flex items-center gap-1">
-                                <Calendar className="h-3 w-3" />
-                                {new Date(note.date).toLocaleDateString()}
-                              </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="font-medium text-sm truncate">
+                                {report.file_name}
+                              </p>
+                              <p className="text-xs text-muted-foreground">
+                                {new Date(
+                                  report.uploaded_at
+                                ).toLocaleDateString()}
+                              </p>
                             </div>
                           </div>
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
-                                <MoreVertical className="h-4 w-4" />
-                              </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end">
-                              <DropdownMenuItem
-                                onClick={() => handleEditNote(note)}
-                              >
-                                <Edit className="h-4 w-4 mr-2" />
-                                Edit
-                              </DropdownMenuItem>
-                              <DropdownMenuItem
-                                onClick={() => handleDeleteNote(note.id)}
-                                className="text-red-600"
-                              >
-                                <Trash2 className="h-4 w-4 mr-2" />
-                                Delete
-                              </DropdownMenuItem>
-                            </DropdownMenuContent>
-                          </DropdownMenu>
+                          <ChevronRight className="h-4 w-4 text-muted-foreground" />
                         </div>
-                      </CardHeader>
-                      <CardContent>
-                        <p
-                          className={`text-sm text-muted-foreground mb-3 ${
-                            isExpanded ? "" : "line-clamp-3"
-                          }`}
-                        >
-                          {note.content}
-                        </p>
-                        {note.content.length > 150 && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => toggleExpand(note.id)}
-                            className="text-xs mb-3"
-                          >
-                            {isExpanded ? "Show less" : "Show more"}
-                          </Button>
-                        )}
-                        {note.tags.length > 0 && (
-                          <div className="flex flex-wrap gap-2">
-                            {note.tags.map((tag, index) => (
-                              <Badge
-                                key={index}
-                                variant="secondary"
-                                className="text-xs"
-                              >
-                                <Tag className="h-3 w-3 mr-1" />
-                                {tag}
-                              </Badge>
-                            ))}
-                          </div>
-                        )}
-                      </CardContent>
-                    </Card>
-                  );
-                })
-              )}
-            </div>
-          </ScrollArea>
-        </div>
-      </div>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Security & Privacy</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-2 text-sm text-muted-foreground">
-            <div className="flex items-center gap-2">
-              <Lock className="h-4 w-4" />
-              <p>All notes are encrypted end-to-end for maximum security</p>
-            </div>
-            <div className="flex items-center gap-2">
-              <Lock className="h-4 w-4" />
-              <p>Your data is stored securely and only accessible by you</p>
-            </div>
-            <div className="flex items-center gap-2">
-              <Lock className="h-4 w-4" />
-              <p>Notes are automatically synced across your devices</p>
-            </div>
+                      </Link>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-center py-12">
+                    <FileText className="h-12 w-12 mx-auto mb-3 opacity-50 text-muted-foreground" />
+                    <p className="text-sm text-muted-foreground mb-4">
+                      No lab reports yet
+                    </p>
+                    <Link href="/lab-reports">
+                      <Button className="bg-blue-600 hover:bg-blue-700 text-white">
+                        <Upload className="h-4 w-4 mr-2" />
+                        Upload Your First Report
+                      </Button>
+                    </Link>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
           </div>
-        </CardContent>
-      </Card>
+
+          {/* Recent Notes */}
+          <div>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-semibold">Recent Notes</h2>
+              <Link href="/notes">
+                <Button variant="ghost" size="sm" className="text-blue-600">
+                  <Plus className="h-4 w-4 mr-2" />
+                  New Note
+                </Button>
+              </Link>
+            </div>
+            <Card className="bg-white border border-gray-200">
+              <CardContent className="p-0">
+                {stats.recentNotes.length > 0 ? (
+                  <div className="divide-y divide-gray-100">
+                    {stats.recentNotes.slice(0, 3).map((note) => (
+                      <Link
+                        key={note.id}
+                        href="/notes"
+                        className="block p-4 hover:bg-gray-50 transition-colors"
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-3 flex-1">
+                            <div className="h-10 w-10 rounded-full bg-blue-100 flex items-center justify-center">
+                              <StickyNote className="h-5 w-5 text-blue-600" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="font-medium text-sm truncate">
+                                {note.title}
+                              </p>
+                              <p className="text-xs text-muted-foreground">
+                                {new Date(note.created_at).toLocaleDateString()}
+                              </p>
+                            </div>
+                          </div>
+                          <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                        </div>
+                      </Link>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-center py-12">
+                    <StickyNote className="h-12 w-12 mx-auto mb-3 opacity-50 text-muted-foreground" />
+                    <p className="text-sm text-muted-foreground mb-4">
+                      No notes yet
+                    </p>
+                    <Link href="/notes">
+                      <Button className="bg-blue-600 hover:bg-blue-700 text-white">
+                        <Plus className="h-4 w-4 mr-2" />
+                        Create Your First Note
+                      </Button>
+                    </Link>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        </>
+      )}
     </div>
   );
 }
