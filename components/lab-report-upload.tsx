@@ -1,8 +1,10 @@
 "use client";
 
 import { useState, useRef } from "react";
+import { useRouter } from "next/navigation";
+import { supabase } from "@/lib/supabase-client";
 import { Button } from "@/components/ui/button";
-import { Upload, FileText, X } from "lucide-react";
+import { Upload, Loader2, FileText, X } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -16,8 +18,10 @@ interface LabReportUploadProps {
 }
 
 export function LabReportUpload({ onUploadSuccess }: LabReportUploadProps) {
+  const router = useRouter();
   const [open, setOpen] = useState(false);
   const [file, setFile] = useState<File | null>(null);
+  const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -37,25 +41,125 @@ export function LabReportUpload({ onUploadSuccess }: LabReportUploadProps) {
     }
   };
 
-  const handleUpload = () => {
-    if (!file) {
-      setError("Please select a file");
+  const handleUpload = async () => {
+    if (!file || !supabase) {
+      setError("Please select a file and ensure you're signed in");
       return;
     }
 
-    // In a starter template, we just simulate success
-    setError("Upload successful! (This is a demo - no actual upload occurred)");
-    setTimeout(() => {
-      setOpen(false);
+    setUploading(true);
+    setError(null);
+
+    try {
+      // Get current user first
+      const {
+        data: { user: userData },
+        error: userError,
+      } = await supabase.auth.getUser();
+
+      if (userError) {
+        console.error("Auth error:", userError);
+        throw new Error(`Authentication error: ${userError.message}`);
+      }
+
+      if (!userData) {
+        throw new Error("Please sign in to upload lab reports");
+      }
+
+      // Note: Email confirmation check removed - Supabase might allow unconfirmed users
+      // depending on project settings. We'll let the server handle auth validation.
+
+      // Try to get session
+      let session = null;
+      const {
+        data: { session: sessionData },
+        error: sessionError,
+      } = await supabase.auth.getSession();
+
+      if (sessionError) {
+        console.error("Session error:", sessionError);
+      }
+
+      if (sessionData) {
+        session = sessionData;
+      } else {
+        // If no session, try to refresh it
+        try {
+          const {
+            data: { session: refreshedSession },
+          } = await supabase.auth.refreshSession();
+          session = refreshedSession;
+        } catch (refreshError) {
+          console.error("Refresh session error:", refreshError);
+        }
+      }
+
+      if (!session || !session.access_token) {
+        // User exists but no session - they need to sign in
+        setError(
+          "No active session. Please sign in to upload lab reports. If you just signed up, check your email to confirm, then sign in."
+        );
+        // Redirect to auth page after a short delay
+        setTimeout(() => {
+          router.push("/auth");
+        }, 2000);
+        setUploading(false);
+        return;
+      }
+
+      const user = userData;
+
+      // Create form data
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("fileName", file.name);
+      formData.append("userId", user.id);
+
+      // Upload to API with auth token
+      const response = await fetch("/api/lab/upload", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: formData,
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          data.error || data.details || "Failed to upload lab report"
+        );
+      }
+
+      if (!data.success) {
+        throw new Error(data.error || "Upload failed");
+      }
+
+      // Success!
+      console.log("Upload successful:", data);
       setFile(null);
       setError(null);
-      if (fileInputRef.current) {
-        fileInputRef.current.value = "";
-      }
+
+      // Show success message briefly before closing
+      setError("Upload successful! Refreshing...");
+      setTimeout(() => {
+        setOpen(false);
+        setError(null);
+        if (fileInputRef.current) {
+          fileInputRef.current.value = "";
+        }
+      }, 1000);
+
+      // Refresh the reports list immediately
       if (onUploadSuccess) {
         onUploadSuccess();
       }
-    }, 1000);
+    } catch (err: any) {
+      setError(err.message || "Failed to upload lab report");
+    } finally {
+      setUploading(false);
+    }
   };
 
   const handleRemoveFile = () => {
@@ -119,6 +223,7 @@ export function LabReportUpload({ onUploadSuccess }: LabReportUploadProps) {
                   variant="ghost"
                   size="sm"
                   onClick={handleRemoveFile}
+                  disabled={uploading}
                 >
                   <X className="h-4 w-4" />
                 </Button>
@@ -154,12 +259,22 @@ export function LabReportUpload({ onUploadSuccess }: LabReportUploadProps) {
                 setFile(null);
                 setError(null);
               }}
+              disabled={uploading}
             >
               Cancel
             </Button>
-            <Button onClick={handleUpload} disabled={!file}>
-              <Upload className="mr-2 h-4 w-4" />
-              Upload & Analyze
+            <Button onClick={handleUpload} disabled={!file || uploading}>
+              {uploading ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Processing...
+                </>
+              ) : (
+                <>
+                  <Upload className="mr-2 h-4 w-4" />
+                  Upload & Analyze
+                </>
+              )}
             </Button>
           </div>
         </div>
