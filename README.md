@@ -25,6 +25,14 @@
 
 ---
 
+
+## 🎥 Demo Video
+
+Watch how FloxAI analyzes lab reports using AI:
+
+[![Watch FloxAI Demo ▶️](https://img.youtube.com/vi/3LOTmh1DfK0/maxresdefault.jpg)](https://youtu.be/3LOTmh1DfK0)
+
+
 ## 🧱 Tech Stack
 
 ### ⚛️ Frontend
