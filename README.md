@@ -1,12 +1,14 @@
 # 🚀 FloxAI – AI Lab Report Analyzer
 
-![Architecture Diagram](docs/floxai_project.png)
 
 
 **FloxAI** is an AI-powered web application that analyzes medical lab reports, explains results in simple language, and allows users to interact with their data through an intelligent chatbot.
 
 🔗 **Live App:** https://floxai.bytasker.com  
 📦 **Repository:** https://github.com/AhmadAlabrash/FloxAI  
+
+
+![Architecture Diagram](docs/floxai_project.png)
 
 ---
 
