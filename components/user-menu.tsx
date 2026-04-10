@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { supabase } from "@/lib/supabase-client";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -16,14 +17,53 @@ import { User, LogOut, Settings } from "lucide-react";
 
 export function UserMenu() {
   const router = useRouter();
-  const [userEmail, setUserEmail] = useState<string | null>("demo@example.com");
+  const [user, setUser] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
 
-  const handleSignOut = () => {
-    setUserEmail(null);
+  useEffect(() => {
+    if (!supabase) {
+      setLoading(false);
+      return;
+    }
+
+    // Get initial user
+    supabase.auth.getUser().then(({ data, error }) => {
+      if (!error && data.user) {
+        setUser(data.user);
+      }
+      setLoading(false);
+    });
+
+    // Listen for auth changes
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+      if (!session?.user) {
+        router.push("/auth");
+      }
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, [router]);
+
+  const handleSignOut = async () => {
+    if (!supabase) return;
+    await supabase.auth.signOut();
     router.push("/auth");
   };
 
-  if (!userEmail) {
+  if (loading) {
+    return (
+      <Button variant="ghost" size="sm" disabled>
+        Loading...
+      </Button>
+    );
+  }
+
+  if (!user) {
     return (
       <Button variant="outline" size="sm" onClick={() => router.push("/auth")}>
         <LogOut className="mr-2 h-4 w-4" />
@@ -32,6 +72,7 @@ export function UserMenu() {
     );
   }
 
+  const userEmail = user.email || "User";
   const initials = userEmail
     .split("@")[0]
     .split(".")
@@ -45,6 +86,7 @@ export function UserMenu() {
       <DropdownMenuTrigger asChild>
         <Button variant="ghost" className="relative h-8 w-8 rounded-full">
           <Avatar className="h-8 w-8">
+            <AvatarImage src={user.user_metadata?.avatar_url} alt={userEmail} />
             <AvatarFallback>{initials}</AvatarFallback>
           </Avatar>
         </Button>
@@ -76,3 +118,4 @@ export function UserMenu() {
     </DropdownMenu>
   );
 }
+

@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { supabase } from "@/lib/supabase-client";
 import {
   Card,
   CardHeader,
@@ -20,63 +21,157 @@ export default function AuthPage() {
   const [password, setPassword] = useState("");
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const handleSignIn = () => {
-    if (!email || !password) {
-      alert("Please enter email and password");
+  useEffect(() => {
+    if (!supabase) {
+      setError(
+        "Supabase is not configured. Please set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY."
+      );
       return;
     }
-    setLoading(true);
-    // Simulate sign in
-    setTimeout(() => {
-      setUserEmail(email);
-      setLoading(false);
-      router.push("/");
-    }, 500);
-  };
 
-  const handleSignUp = () => {
-    if (!email || !password) {
-      alert("Please enter email and password");
-      return;
+    supabase.auth
+      .getUser()
+      .then(({ data, error }: { data: any; error: any }) => {
+        if (error) {
+          console.error("Error getting user:", error);
+          return;
+        }
+        setUserEmail(data.user?.email ?? null);
+      });
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event: any, session: any) => {
+      setUserEmail(session?.user?.email ?? null);
+      if (session?.user) {
+        // Redirect to home after successful auth
+        router.push("/");
+      }
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, [router]);
+
+  const handleSignUp = async () => {
+    if (!supabase) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const { error } = await supabase.auth.signUp({
+        email,
+        password,
+      });
+      if (error) throw error;
+      alert("Check your email to confirm your account.");
+    } catch (err: any) {
+      setError(err.message || "Sign up failed");
+    } finally {
+      setLoading(false);
     }
-    setLoading(true);
-    // Simulate sign up
-    setTimeout(() => {
-      setUserEmail(email);
-      setLoading(false);
-      alert("Account created! (This is a demo - no actual account was created)");
-      router.push("/");
-    }, 500);
   };
 
-  const handleSignOut = () => {
+  const handleSignIn = async () => {
+    if (!supabase) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const { error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+      if (error) throw error;
+      router.push("/");
+    } catch (err: any) {
+      setError(err.message || "Sign in failed");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSignOut = async () => {
+    if (!supabase) return;
+    await supabase.auth.signOut();
     setUserEmail(null);
   };
 
-  const handleGmailSignIn = () => {
+  const handleGmailSignIn = async () => {
+    if (!supabase) return;
     setLoading(true);
-    // Simulate Gmail sign in
-    setTimeout(() => {
-      setUserEmail("demo@example.com");
+    setError(null);
+    try {
+      const appUrl = process.env.NEXT_PUBLIC_APP_URL || window.location.origin;
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: {
+          redirectTo: `${appUrl}/auth/callback`,
+          queryParams: {
+            access_type: "offline",
+            prompt: "consent",
+          },
+        },
+      });
+      if (error) throw error;
+    } catch (err: any) {
+      setError(err.message || "Gmail sign in failed");
       setLoading(false);
-      router.push("/");
-    }, 500);
+    }
   };
 
-  const handleSSOSignIn = () => {
+  const handleSSOSignIn = async () => {
     if (!email.trim()) {
-      alert("Please enter your work email");
+      setError("Please enter your work email");
       return;
     }
+
     setLoading(true);
-    // Simulate SSO sign in
-    setTimeout(() => {
-      setUserEmail(email.trim());
+    setError(null);
+
+    try {
+      const response = await fetch("/api/auth/scalekit/authorize", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          email: email.trim(),
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || "Failed to initiate SSO");
+      }
+
+      // Redirect to SSO provider
+      window.location.href = data.authorizationUrl;
+    } catch (err: any) {
+      setError(err.message || "SSO sign in failed");
       setLoading(false);
-      router.push("/");
-    }, 500);
+    }
   };
+
+  if (!supabase) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-4">
+        <Card className="w-full max-w-md">
+          <CardHeader>
+            <CardTitle>Configuration Error</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-sm text-red-600">
+              Supabase is not configured. Please set NEXT_PUBLIC_SUPABASE_URL
+              and NEXT_PUBLIC_SUPABASE_ANON_KEY in your environment variables.
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen flex items-center justify-center p-4">
@@ -95,8 +190,8 @@ export default function AuthPage() {
                   Signed in as <span className="font-medium">{userEmail}</span>
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  This is a demo. In a production environment, you would access
-                  your profile from the user menu.
+                  You can access your profile and sign out from the user menu in
+                  the top right corner of the app.
                 </p>
               </div>
               <div className="flex gap-2">
@@ -200,6 +295,7 @@ export default function AuthPage() {
                   }}
                 />
               </div>
+              {error && <p className="text-sm text-red-600">{error}</p>}
               <div className="flex gap-2">
                 <Button
                   className="flex-1"
@@ -217,9 +313,6 @@ export default function AuthPage() {
                   Sign up
                 </Button>
               </div>
-              <p className="text-xs text-center text-muted-foreground">
-                This is a demo. No actual authentication is performed.
-              </p>
             </>
           )}
         </CardContent>

@@ -10,17 +10,37 @@ import {
 } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
-import { Sparkles } from "lucide-react";
+import { Loader2, Sparkles } from "lucide-react";
 
 export function LabGeminiPanel() {
   const [input, setInput] = useState("");
   const [analysis, setAnalysis] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const handleAnalyze = () => {
+  const handleAnalyze = async () => {
     if (!input.trim()) return;
-    
-    // Simulate AI analysis with dummy response
-    setAnalysis("This is a demo analysis. In a production environment, this would be processed by an AI service (like Gemini) to provide patient-friendly explanations of lab results. The interface is ready for integration with your AI service.\n\nYour lab values would be analyzed here with:\n- Overall health summary\n- Abnormal value explanations\n- Follow-up questions for your clinician");
+    setLoading(true);
+    setError(null);
+    setAnalysis(null);
+    try {
+      const res = await fetch("/api/lab/analyze", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ text: input }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || "Failed to analyze lab report");
+      }
+      setAnalysis(data.analysis);
+    } catch (err: any) {
+      setError(err.message || "Something went wrong");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -32,7 +52,7 @@ export function LabGeminiPanel() {
         </div>
         <CardDescription>
           Paste your lab values and get a patient-friendly explanation powered
-          by AI.
+          by Gemini.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -46,10 +66,18 @@ WBC: 12.5 x10^9/L (4.0 - 11.0)
           rows={6}
         />
         <div className="flex justify-end">
-          <Button onClick={handleAnalyze} disabled={!input.trim()}>
-            Analyze with AI
+          <Button onClick={handleAnalyze} disabled={loading || !input.trim()}>
+            {loading ? (
+              <>
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                Analyzing...
+              </>
+            ) : (
+              <>Analyze with Gemini</>
+            )}
           </Button>
         </div>
+        {error && <p className="text-sm text-red-600">{error}</p>}
         {analysis && (
           <div className="mt-4 border rounded-md p-3 text-sm whitespace-pre-wrap bg-muted/40">
             {analysis

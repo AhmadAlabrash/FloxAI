@@ -1,10 +1,11 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
+import { supabase } from "@/lib/supabase-client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Send, MessageSquare } from "lucide-react";
+import { Loader2, Send, MessageSquare } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 
 interface Message {
@@ -21,6 +22,8 @@ interface LabReportChatProps {
 export function LabReportChat({ reportId, fileName }: LabReportChatProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -30,8 +33,8 @@ export function LabReportChat({ reportId, fileName }: LabReportChatProps) {
     }
   }, [messages]);
 
-  const handleSend = () => {
-    if (!input.trim()) return;
+  const handleSend = async () => {
+    if (!input.trim() || loading) return;
 
     const userMessage: Message = {
       role: "user",
@@ -41,16 +44,60 @@ export function LabReportChat({ reportId, fileName }: LabReportChatProps) {
 
     setMessages((prev) => [...prev, userMessage]);
     setInput("");
+    setLoading(true);
+    setError(null);
 
-    // Simulate AI response with dummy data
-    setTimeout(() => {
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (!user) {
+        throw new Error("Please sign in to chat");
+      }
+
+      // Get session token for RLS
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      const headers: HeadersInit = {
+        "Content-Type": "application/json",
+      };
+      if (session?.access_token) {
+        headers.Authorization = `Bearer ${session.access_token}`;
+      }
+
+      const response = await fetch("/api/lab/chat", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          reportId,
+          question: userMessage.content,
+          userId: user.id,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || "Failed to get answer");
+      }
+
       const assistantMessage: Message = {
         role: "assistant",
-        content: "This is a demo response. In a production environment, this would be processed by an AI service to provide accurate answers about your lab report. The chat interface is ready for integration with your AI service.",
+        content: data.answer,
         timestamp: new Date(),
       };
+
       setMessages((prev) => [...prev, assistantMessage]);
-    }, 1000);
+    } catch (err: any) {
+      setError(err.message || "Failed to send message");
+      // Remove the user message if it failed
+      setMessages((prev) => prev.slice(0, -1));
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleKeyPress = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -122,9 +169,22 @@ export function LabReportChat({ reportId, fileName }: LabReportChatProps) {
                   </div>
                 </div>
               ))}
+              {loading && (
+                <div className="flex justify-start">
+                  <div className="bg-muted rounded-lg p-3">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </ScrollArea>
+
+        {error && (
+          <div className="mb-2 p-2 bg-red-50 border border-red-200 rounded text-sm text-red-600">
+            {error}
+          </div>
+        )}
 
         <div className="flex gap-2">
           <Input
@@ -132,13 +192,19 @@ export function LabReportChat({ reportId, fileName }: LabReportChatProps) {
             onChange={(e) => setInput(e.target.value)}
             onKeyPress={handleKeyPress}
             placeholder="Ask a question about your lab report..."
+            disabled={loading}
             className="flex-1"
           />
-          <Button onClick={handleSend} disabled={!input.trim()}>
-            <Send className="h-4 w-4" />
+          <Button onClick={handleSend} disabled={loading || !input.trim()}>
+            {loading ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Send className="h-4 w-4" />
+            )}
           </Button>
         </div>
       </CardContent>
     </Card>
   );
 }
+
